@@ -14,51 +14,61 @@ import pandas as pd
 
 def ingest_data():
     """
-    Función para leer y procesar datos desde un archivo de texto fijo (clusters_report.txt).
-    Transforma el contenido en un DataFrame de pandas con columnas específicas.
+    Función para leer y procesar datos desde un archivo de ancho fijo (clusters_report.txt).
     """
-    # Leer el archivo de texto con anchos de columna fijos
-    data_frame = pd.read_fwf(
-        "clusters_report.txt",
-        widths=[9, 16, 16, 80],  # Anchos de las columnas
-        header=None,
-        names=[
-            "cluster",  # Número del clúster
-            "num_palabras_clave",  # Cantidad de palabras clave
-            "porcentaje_palabras",  # Porcentaje de palabras clave
-            "texto_largo",  # Columna con texto largo
-        ],
-        skip_blank_lines=False,
-        converters={
-            "porcentaje_palabras": lambda x: x.rstrip(" %").replace(",", ".")  # Convertir porcentaje a float
-        },
-    ).drop([0, 1, 2, 3], axis=0)  # Eliminar las primeras 4 filas (metadatos)
+    # Leer el archivo con anchos de columna fijos
+    datos = pd.read_fwf("clusters_report.txt", widths=[9, 16, 16, 77])
+    
+    # Ajustar los nombres de las columnas
+    datos.columns = datos.columns + " " + list(datos.iloc[0])
+    datos.columns = [col.replace(" nan", "").replace(" ", "_").lower() for col in datos.columns]
+    
+    # Eliminar las dos primeras filas (cabeceras innecesarias)
+    datos = datos.iloc[2:]
+    datos.reset_index(inplace=True, drop=True)
+    
+    # Corregir la fila específica de la columna de palabras clave principales
+    datos.iloc[23, 3] = datos.iloc[23, 3] + '.'
+    columna_palabras = list(datos.iloc[:, 3]).copy()
+    lista_palabras = []
+    acumulado = ""
 
-    texto_largo_col = data_frame["texto_largo"]  # Guardar la columna de texto largo
-    data_frame = data_frame[data_frame["cluster"].notna()].drop("texto_largo", axis=1)  # Eliminar columna de texto largo
-    data_frame = data_frame.astype(
-        {
-            "cluster": int,
-            "num_palabras_clave": int,
-            "porcentaje_palabras": float,
-        }
-    )
-
-    palabras_clave_list = []  # Lista para almacenar las palabras clave principales
-    texto_acumulado = ""
-    for linea in texto_largo_col:
-        if isinstance(linea, str):
-            texto_acumulado += linea + " "  # Acumular texto si es una cadena de caracteres
+    for elemento in columna_palabras:
+        if acumulado:  # Añadir el elemento actual a la cadena temporal
+            acumulado += ' ' + elemento
         else:
-            # Procesar texto acumulado eliminando espacios en blanco extras
-            texto_acumulado = ", ".join([" ".join(x.split()) for x in texto_acumulado.split(",")])
-            palabras_clave_list.append(texto_acumulado.rstrip("."))  # Agregar el texto procesado a la lista
-            texto_acumulado = ""  # Reiniciar el acumulador
-            continue
+            acumulado = elemento
+        
+        # Si el elemento actual termina en un punto, añadir a la nueva lista y resetear la cadena temporal
+        if elemento.endswith('.'):
+            lista_palabras.append(acumulado)
+            acumulado = ""  # Reiniciar para el próximo grupo
 
-    # Añadir la columna de palabras clave principales al DataFrame
-    data_frame["palabras_clave_principales"] = palabras_clave_list
-    return data_frame
-
-
-print(ingest_data())
+    # Filtrar las filas donde la columna 'cluster' no sea NaN
+    datos = datos[datos['cluster'].notna()]
+    datos['principales_palabras_clave'] = lista_palabras
+    
+    # Eliminar dobles espacios y caracteres innecesarios
+    datos['principales_palabras_clave'] = (
+        datos['principales_palabras_clave']
+        .str.replace('    ', ' ')
+        .str.replace('   ', ' ')
+        .str.replace('  ', ' ')
+        .str.replace(',,', ',')
+        .str.replace('.', '')
+    )
+    datos.reset_index(inplace=True, drop=True)
+    
+    # Convertir las columnas 'cluster' y 'cantidad_de_palabras_clave' a tipo numérico
+    datos['cluster'] = datos['cluster'].astype(int)
+    datos['cantidad_de_palabras_clave'] = datos['cantidad_de_palabras_clave'].astype(int)
+    
+    # Remover el símbolo de porcentaje y convertir 'porcentaje_de_palabras_clave' a tipo float
+    datos['porcentaje_de_palabras_clave'] = (
+        datos['porcentaje_de_palabras_clave']
+        .str.replace(' %', '')
+        .str.replace(",", ".")
+        .astype(float)
+    )
+    
+    return datos
